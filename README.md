@@ -29,13 +29,13 @@ High-level data flow from a developer-built client through account abstraction t
 sequenceDiagram
 
   autonumber
-  actor App as "Wallet or demo dApp"
-  participant Lib as "@semaphore-msa-modules/lib"
-  participant ZK as "Off-chain ZK prover"
-  participant SA as "Smart account"
-  participant Val as "SemaphoreValidator"
-  participant Ex as "SemaphoreExecutor"
-  participant Sem as "Semaphore contracts"
+  actor App as Wallet or demo dApp
+  participant Lib as @semaphore-msa-modules/lib
+  participant ZK as Off-chain ZK prover
+  participant SA as Smart account
+  participant Val as SemaphoreValidator
+  participant Ex as SemaphoreExecutor
+  participant Sem as Semaphore contracts
 
   App->>Lib: Install modules, encode calls, build user ops
 
