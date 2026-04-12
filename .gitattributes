@@ -1,0 +1,5 @@
+# Exclude frontend from language stats — it's scaffolding, not the core work
+packages/web/** linguist-vendored
+
+# Ensure Solidity files are always counted
+*.sol linguist-detectable
