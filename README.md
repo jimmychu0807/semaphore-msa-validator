@@ -4,7 +4,7 @@
 
 ## Try it
 
-- [Live demo](https://semaphore-msa-modules.jimmychu0807.hk/) (connect on **Base Sepolia**)
+- [Demo website](https://semaphore-msa-modules.jimmychu0807.hk/) (connect on **Base Sepolia**)
 - [Demo video](https://www.loom.com/share/0b800171a4f1491f9eedd4f555569e37?sid=0c2d3024-5652-499e-b374-218023da581b)
 - [Project write-up](https://jimmychu0807.hk/semaphore-msa-modules)
 
@@ -26,60 +26,65 @@ Together they give a smart account **anonymous threshold control**: only group m
 High-level data flow from a developer-built client through account abstraction to Semaphore on-chain.
 
 ```mermaid
-flowchart TB
-  subgraph apps["Applications you build"]
-    Wallet["Wallets and dApps"]
-    Demo["packages/web demo"]
+sequenceDiagram
+  autonumber
+  actor App as Wallet or demo dApp
+  participant Lib as @semaphore-msa-modules/lib
+  participant MSK as Rhinestone Module SDK
+  participant ZK as Off-chain ZK prover
+  participant Bun as Bundler
+  participant PM as Paymaster
+  participant EP as EntryPoint
+  participant SA as Smart account
+  participant Val as SemaphoreValidator
+  participant Ex as SemaphoreExecutor
+  participant Sem as Semaphore contracts
+
+  App->>Lib: Install modules, encode calls, build user ops
+  Lib->>MSK: Module descriptors and account wiring
+
+  Note over App,Sem: Anonymous threshold flow — each step is usually its own UserOperation
+
+  App->>ZK: Identity + signal, proof for initiateTx
+  ZK-->>App: Proof bytes
+  App->>Bun: Submit initiateTx UserOperation
+  opt Optional paymaster
+    Bun->>PM: Gas sponsorship path
+  end
+  Bun->>EP: handleOps
+  EP->>SA: validateUserOp
+  SA->>Val: Signature and policy checks
+  Val->>Ex: Restrict to paired executor API
+  EP->>SA: Execute calldata
+  SA->>Ex: initiateTx
+  Ex->>Sem: Verify proof, nullifier, store pending tx (1st proof)
+
+  loop Until collected proofs >= M-of-N threshold
+    App->>ZK: Proof for same txHash / signal
+    ZK-->>App: Proof bytes
+    App->>Bun: Submit signTx UserOperation
+    Bun->>EP: handleOps
+    EP->>SA: validateUserOp
+    SA->>Val: Signature and policy checks
+    Val->>Ex: Restrict to paired executor API
+    EP->>SA: Execute calldata
+    SA->>Ex: signTx
+    Ex->>Sem: Verify proof, nullifier, increment count
   end
 
-  subgraph sdk["TypeScript integration"]
-    Lib["@semaphore-msa-modules/lib"]
-    MSK["Rhinestone Module SDK"]
-    Viem["viem"]
+  opt executeTx user op (skip if initiateTx/signTx used execute flag)
+    App->>Bun: Submit executeTx UserOperation
+    Bun->>EP: handleOps
+    EP->>SA: validateUserOp
+    SA->>Val: Signature and policy checks
+    Val->>Ex: Restrict to paired executor API
+    EP->>SA: Execute calldata
+    SA->>Ex: executeTx
+    Ex->>Sem: Final checks, then run the pending external call
   end
-
-  subgraph aa["ERC-4337"]
-    Bundler["Bundler e.g. Alto"]
-    EP["EntryPoint"]
-    PM["Paymaster optional"]
-  end
-
-  subgraph msaa["Modular smart account ERC-7579"]
-    SA["Smart account"]
-    VAL["SemaphoreValidator"]
-    EX["SemaphoreExecutor"]
-  end
-
-  subgraph semaphore["Semaphore on-chain"]
-    SC["Semaphore"]
-    PV["Verifier and Poseidon"]
-  end
-
-  subgraph off["Off-chain prover"]
-    ID["Semaphore Identity"]
-    ZK["ZK proof generation"]
-  end
-
-  Wallet --> Lib
-  Demo --> Lib
-  Lib --> MSK
-  Lib --> Viem
-  Lib --> ZK
-  ID --> ZK
-  ZK --> Bundler
-  Wallet --> Bundler
-  Demo --> Bundler
-  PM -.-> Bundler
-  Bundler --> EP
-  EP --> SA
-  SA --> VAL
-  SA --> EX
-  VAL --> EX
-  EX --> SC
-  SC --> PV
 ```
 
-**How to read it:** clients use the library to install modules, encode calls, and generate Semaphore proofs; a bundler submits `UserOperation`s to `EntryPoint`; the **validator** checks the user-op path and signature; the **executor** stores the anonymous multisig workflow and talks to the **Semaphore** contracts for membership and nullifiers.
+**How to read it:** clients use the library (with **Rhinestone Module SDK** and **viem** under the hood) to install modules, encode calls, and assemble user ops; an off-chain prover produces Semaphore proofs; a **bundler** submits each `UserOperation` to **EntryPoint** (with an optional **paymaster**); the **validator** checks the user-op path and signature; the **executor** runs **`initiateTx`** (first proof, pending tx), then **`signTx`** in a loop until the account’s **M-of-N threshold** is met, then **`executeTx`** when proofs are sufficient (or earlier if `execute` is set so the contract auto-runs `executeTx` once the threshold is reached).
 
 ## Who should integrate this?
 
