@@ -27,64 +27,49 @@ High-level data flow from a developer-built client through account abstraction t
 
 ```mermaid
 sequenceDiagram
+
   autonumber
-  actor App as Wallet or demo dApp
-  participant Lib as @semaphore-msa-modules/lib
-  participant MSK as Rhinestone Module SDK
-  participant ZK as Off-chain ZK prover
-  participant Bun as Bundler
-  participant PM as Paymaster
-  participant EP as EntryPoint
-  participant SA as Smart account
-  participant Val as SemaphoreValidator
-  participant Ex as SemaphoreExecutor
-  participant Sem as Semaphore contracts
+  actor App as "Wallet or demo dApp"
+  participant Lib as "@semaphore-msa-modules/lib"
+  participant ZK as "Off-chain ZK prover"
+  participant SA as "Smart account"
+  participant Val as "SemaphoreValidator"
+  participant Ex as "SemaphoreExecutor"
+  participant Sem as "Semaphore contracts"
 
   App->>Lib: Install modules, encode calls, build user ops
-  Lib->>MSK: Module descriptors and account wiring
 
   Note over App,Sem: Anonymous threshold flow — each step is usually its own UserOperation
 
   App->>ZK: Identity + signal, proof for initiateTx
   ZK-->>App: Proof bytes
-  App->>Bun: Submit initiateTx UserOperation
-  opt Optional paymaster
-    Bun->>PM: Gas sponsorship path
-  end
-  Bun->>EP: handleOps
-  EP->>SA: validateUserOp
-  SA->>Val: Signature and policy checks
+  App->>SA: initiateTx UserOperation (validate + execute)
+  SA->>Val: validateUserOp
   Val->>Ex: Restrict to paired executor API
-  EP->>SA: Execute calldata
   SA->>Ex: initiateTx
   Ex->>Sem: Verify proof, nullifier, store pending tx (1st proof)
+
+  Note over App,Sem: signTx UserOperation
 
   loop Until collected proofs >= M-of-N threshold
     App->>ZK: Proof for same txHash / signal
     ZK-->>App: Proof bytes
-    App->>Bun: Submit signTx UserOperation
-    Bun->>EP: handleOps
-    EP->>SA: validateUserOp
-    SA->>Val: Signature and policy checks
+    App->>SA: signTx UserOperation (validate + execute)
+    SA->>Val: validateUserOp
     Val->>Ex: Restrict to paired executor API
-    EP->>SA: Execute calldata
     SA->>Ex: signTx
     Ex->>Sem: Verify proof, nullifier, increment count
   end
 
-  opt executeTx user op (skip if initiateTx/signTx used execute flag)
-    App->>Bun: Submit executeTx UserOperation
-    Bun->>EP: handleOps
-    EP->>SA: validateUserOp
-    SA->>Val: Signature and policy checks
-    Val->>Ex: Restrict to paired executor API
-    EP->>SA: Execute calldata
-    SA->>Ex: executeTx
-    Ex->>Sem: Final checks, then run the pending external call
-  end
+  Note over App,Sem: executeTx UserOperation
+  App->>SA: executeTx UserOperation (validate + execute)
+  SA->>Val: validateUserOp
+  Val->>Ex: Restrict to paired executor API
+  SA->>Ex: executeTx
+  Ex->>Sem: Final checks, then run the pending external call
 ```
 
-**How to read it:** clients use the library (with **Rhinestone Module SDK** and **viem** under the hood) to install modules, encode calls, and assemble user ops; an off-chain prover produces Semaphore proofs; a **bundler** submits each `UserOperation` to **EntryPoint** (with an optional **paymaster**); the **validator** checks the user-op path and signature; the **executor** runs **`initiateTx`** (first proof, pending tx), then **`signTx`** in a loop until the account’s **M-of-N threshold** is met, then **`executeTx`** when proofs are sufficient (or earlier if `execute` is set so the contract auto-runs `executeTx` once the threshold is reached).
+**How to read it:** clients use the library (with **Rhinestone Module SDK** and **viem** under the hood) to install modules, encode calls, and assemble user ops; an off-chain prover produces Semaphore proofs; each **`UserOperation`** is validated and executed on the **smart account** (in a full **ERC-4337** stack, **`EntryPoint`** orchestrates this via **`handleOps`**, often through a bundler, with an optional paymaster); the **validator** checks the user-op path and signature; the **executor** runs **`initiateTx`** (first proof, pending tx), then **`signTx`** in a loop until the account’s **M-of-N threshold** is met, then **`executeTx`** when proofs are sufficient (or earlier if `execute` is set so the contract auto-runs `executeTx` once the threshold is reached).
 
 ## Who should integrate this?
 
